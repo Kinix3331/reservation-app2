@@ -24,6 +24,11 @@
   color: white;
 }
 
+.scrollable-dropdown-menu {
+  max-height: 250px; 
+  overflow-y: auto;  
+}
+
 .App-link {
   color: #61dafb;
 }

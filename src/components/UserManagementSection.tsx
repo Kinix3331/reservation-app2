@@ -1,20 +1,15 @@
-// src/components/UserManagementSection.tsx
+ 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Container, Spinner, Alert, ListGroup, Card, Button, Row, Col, Form } from 'react-bootstrap';
-import { db, auth } from '../firebase/config'; // Potrzebujemy dostępu do db i auth
+import { db, auth } from '../firebase/config';
 import { collection, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { sendPasswordResetEmail } from "firebase/auth"; // NOWY IMPORT: do resetowania hasła
-
-interface UserData {
-  id: string; // UID użytkownika z Firebase Auth
-  username: string;
-  email: string;
-  role: 'admin' | 'user';
-  createdAt?: Date;
-}
+import { sendPasswordResetEmail } from "firebase/auth";
+import { useAuth } from '../contexts/AuthContext';  
+import { UserProfile } from '../types/models';  
 
 const UserManagementSection: React.FC = () => {
-  const [users, setUsers] = useState<UserData[]>([]);
+  const { currentUser } = useAuth();  
+  const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -24,20 +19,20 @@ const UserManagementSection: React.FC = () => {
     try {
       const usersCollectionRef = collection(db, 'users');
       const querySnapshot = await getDocs(usersCollectionRef);
-      const fetchedUsers: UserData[] = querySnapshot.docs.map(doc => {
+      const fetchedUsers: UserProfile[] = querySnapshot.docs.map(doc => {
         const data = doc.data();
         return {
-          id: doc.id,
+          id: doc.id,  
           username: data.username || 'N/A',
           email: data.email || 'N/A',
-          role: data.role || 'user',
-          createdAt: data.createdAt ? new Date(data.createdAt.seconds * 1000) : undefined,
+          role: data.role || 'user',  
+          createdAt: data.createdAt ? new Date(data.createdAt.toDate()) : undefined,
         };
       });
       setUsers(fetchedUsers);
     } catch (err: any) {
-      setError(`Błąd podczas ładowania użytkowników: ${err.message}`);
-      console.error("Błąd ładowania użytkowników:", err);
+      console.error("Błąd podczas pobierania użytkowników:", err);
+      setError(`Nie udało się załadować użytkowników: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -47,96 +42,114 @@ const UserManagementSection: React.FC = () => {
     fetchUsers();
   }, [fetchUsers]);
 
-  const handleChangeRole = async (userId: string, currentRole: 'admin' | 'user') => {
-    const newRole = currentRole === 'admin' ? 'user' : 'admin';
-    if (window.confirm(`Czy na pewno chcesz zmienić rolę użytkownika ${users.find(u => u.id === userId)?.username || userId} na ${newRole}?`)) {
-      try {
-        const userDocRef = doc(db, 'users', userId);
-        await updateDoc(userDocRef, { role: newRole });
-        alert(`Rola użytkownika ${users.find(u => u.id === userId)?.username || userId} została zmieniona na ${newRole}.`);
-        fetchUsers(); // Odśwież listę
-      } catch (err: any) {
-        setError(`Błąd podczas zmiany roli: ${err.message}`);
-        console.error("Błąd zmiany roli:", err);
-      }
-    }
-  };
-
-  const handleDeleteUser = async (userId: string, userEmail: string) => {
-    if (window.confirm(`Czy na pewno chcesz trwale usunąć użytkownika ${userEmail}? Tej operacji nie można cofnąć! Pamiętaj, że to usunie tylko dokument z Firestore. Aby usunąć konto Firebase Auth, potrzebne są Firebase Cloud Functions.`)) {
-      try {
-        // Usuń dokument użytkownika z Firestore
-        const userDocRef = doc(db, 'users', userId);
-        await deleteDoc(userDocRef);
-
-        // Tutaj jest miejsce, gdzie normalnie wywołałoby się Cloud Function
-        // do usunięcia użytkownika z Firebase Authentication.
-        // Bez tego użytkownik nadal będzie miał konto Auth, ale nie będzie miał danych w Firestore.
-
-        alert(`Użytkownik ${userEmail} został usunięty z bazy danych Firestore.`);
-        fetchUsers(); // Odśwież listę
-      } catch (err: any) {
-        setError(`Błąd podczas usuwania użytkownika: ${err.message}`);
-        console.error("Błąd usuwania użytkownika:", err);
-      }
-    }
-  };
-
-  // NOWA FUNKCJA: Do wysyłania linku resetującego hasło
-  const handleResetPassword = async (userEmail: string) => {
-    if (!userEmail) {
-      alert('Brak adresu e-mail dla tego użytkownika.');
+  const handleChangeRole = useCallback(async (userId: string, currentRole: 'user' | 'admin') => {
+    if (!currentUser) {
+      alert("Musisz być zalogowany, aby zmienić role.");
       return;
     }
-    if (window.confirm(`Czy na pewno chcesz wysłać link do resetowania hasła na adres ${userEmail}?`)) {
+    if (currentUser.id === userId) {  
+      alert("Nie możesz zmienić swojej własnej roli.");
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    const newRole = currentRole === 'admin' ? 'user' : 'admin';
+    try {
+      const userDocRef = doc(db, 'users', userId);
+      await updateDoc(userDocRef, { role: newRole });
+      alert(`Rola użytkownika ${userId} zmieniona na ${newRole}.`);
+      fetchUsers();  
+    } catch (err: any) {
+      console.error("Błąd zmiany roli:", err);
+      setError(`Nie udało się zmienić roli: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [currentUser, fetchUsers]);
+
+  const handleDeleteUserProfile = useCallback(async (userId: string, email: string) => {
+    if (!currentUser) {
+      alert("Musisz być zalogowany, aby usuwać profile.");
+      return;
+    }
+    if (currentUser.id === userId) {  
+      alert("Nie możesz usunąć swojego własnego konta.");
+      return;
+    }
+
+    if (window.confirm(`Czy na pewno chcesz usunąć profil użytkownika ${email}? To nie usunie konta Firebase Auth!`)) {
+      setLoading(true);
+      setError('');
       try {
-        await sendPasswordResetEmail(auth, userEmail);
-        alert(`Link do resetowania hasła został wysłany na adres ${userEmail}.`);
+        const userDocRef = doc(db, 'users', userId);
+        await deleteDoc(userDocRef);
+        alert(`Profil użytkownika ${email} został usunięty z Firestore.`);
+        fetchUsers();  
       } catch (err: any) {
-        // Obsługa błędów, np. Firebase: Error (auth/user-not-found).
-        let errorMessage = `Błąd podczas wysyłania linku do resetowania hasła: ${err.message}`;
-        if (err.code === 'auth/user-not-found') {
-          errorMessage = `Użytkownik z adresem e-mail ${userEmail} nie został znaleziony.`;
-        }
-        setError(errorMessage);
-        console.error("Błąd resetowania hasła:", err);
-        alert(errorMessage); // Wyświetl alert z błędem
+        console.error("Błąd usuwania profilu użytkownika:", err);
+        setError(`Nie udało się usunąć profilu użytkownika: ${err.message}`);
+      } finally {
+        setLoading(false);
       }
     }
-  };
+  }, [currentUser, fetchUsers]);
+
+  const handleResetPassword = useCallback(async (email: string) => {
+    if (!email) {
+      alert("Email użytkownika jest wymagany do resetowania hasła.");
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      await sendPasswordResetEmail(auth, email);
+      alert(`Link do resetowania hasła został wysłany na adres: ${email}`);
+    } catch (err: any) {
+      console.error("Błąd resetowania hasła:", err);
+      setError(`Nie udało się wysłać linku do resetowania hasła: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   if (loading) {
     return (
-      <Container className="text-center mt-5">
-        <Spinner animation="border" />
-        <p>Ładowanie użytkowników...</p>
+      <Container className="d-flex justify-content-center align-items-center" style={{ minHeight: '30vh' }}>
+        <Spinner animation="border" role="status">
+          <span className="visually-hidden">Ładowanie użytkowników...</span>
+        </Spinner>
       </Container>
     );
   }
 
   if (error) {
-    return <Alert variant="danger" className="mt-4">{error}</Alert>;
+    return (
+      <Container className="mt-4">
+        <Alert variant="danger">
+          Wystąpił błąd: {error}
+        </Alert>
+      </Container>
+    );
   }
 
   return (
-    <Card className="mt-4">
+    <Card className="mb-4">
       <Card.Body>
-        <h3 className="mb-3">Zarządzanie Użytkownikami</h3>
+        <Card.Title>Zarządzanie Użytkownikami</Card.Title>
         {users.length === 0 ? (
-          <Alert variant="info">Brak użytkowników do wyświetlenia.</Alert>
+          <Alert variant="info">Brak zarejestrowanych użytkowników.</Alert>
         ) : (
-          <ListGroup>
+          <ListGroup variant="flush">
             {users.map((user) => (
-              <ListGroup.Item key={user.id} className="mb-2">
+              <ListGroup.Item key={user.id}> {/* Używamy user.id */}
                 <Row className="align-items-center">
                   <Col md={6}>
-                    <p><strong>Nazwa:</strong> {user.username}</p>
-                    <p><strong>Email:</strong> {user.email}</p>
-                    <p><strong>Rola:</strong> {user.role}</p>
+                    <p className="mb-0"><strong>{user.username}</strong> ({user.email}) - {user.role === 'admin' ? 'Administrator' : 'Użytkownik'}</p>
                     {user.createdAt && <small className="text-muted">Utworzono: {user.createdAt.toLocaleString()}</small>}
                   </Col>
                   <Col md={6} className="text-md-end">
-                    <div className="d-flex flex-wrap justify-content-end gap-2"> {/* Użyj flex-wrap i gap */}
+                    <div className="d-flex flex-wrap justify-content-end gap-2">
                       <Button
                         variant={user.role === 'admin' ? 'outline-secondary' : 'primary'}
                         size="sm"
@@ -145,18 +158,19 @@ const UserManagementSection: React.FC = () => {
                         Zmień na {user.role === 'admin' ? 'Użytkownik' : 'Admin'}
                       </Button>
                       <Button
-                        variant="info" // inny kolor dla lepszej widoczności
+                        variant="info"
                         size="sm"
-                        onClick={() => handleResetPassword(user.email)}
+                        onClick={() => handleResetPassword(user.email || '')}  
                       >
                         Zmień hasło
                       </Button>
                       <Button
                         variant="danger"
                         size="sm"
-                        onClick={() => handleDeleteUser(user.id, user.email)}
+                        onClick={() => handleDeleteUserProfile(user.id, user.email || '')}  
+                        disabled={user.id === currentUser?.id}  
                       >
-                        Usuń
+                        Usuń profil (konto Auth zostanie)
                       </Button>
                     </div>
                   </Col>

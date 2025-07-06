@@ -1,229 +1,332 @@
 // src/pages/DashboardPage.tsx
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Container, Card, Button, Spinner, Alert, ListGroup, Row, Col } from 'react-bootstrap';
+import { Container, Spinner, Alert, Card, Button } from 'react-bootstrap';
+import { db } from '../firebase/config';
+import { collection, query, where, getDocs, doc, updateDoc, deleteDoc, Timestamp } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
-import { Meeting } from '../types/models';
-import { getMeetings, cancelMeeting, deleteMeeting } from '../services/meetingService';
-import MeetingFormModal from '../components/MeetingFormModal';
-
-// Importy dla React-Big-Calendar
-import { Calendar, momentLocalizer, View } from 'react-big-calendar'; // Nadal potrzebujemy View
+import { Calendar, momentLocalizer, Event as BigCalendarBaseEvent, View, NavigateAction, ToolbarProps } from 'react-big-calendar';
 import moment from 'moment';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
+import MeetingFormModal from '../components/MeetingFormModal';
+import CalendarToolbar from '../components/CalendarToolbar'; // Importujemy niestandardowy Toolbar
+import { getMeetings, updateMeeting, deleteMeeting } from '../services/meetingService';
+import { getAllUsers } from '../services/userService';
 
-// Import niestandardowego paska narzędzi kalendarza
-import CalendarToolbar from '../components/CalendarToolbar';
+import { UserProfile, Meeting, CalendarEvent } from '../types/models';
 
-// Ustawienie lokalizatora dla kalendarza
 const localizer = momentLocalizer(moment);
 
 const DashboardPage: React.FC = () => {
-  const { currentUser } = useAuth();
+  const { currentUser, loading: authLoading, displayRole } = useAuth();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [showModal, setShowModal] = useState(false);
-  const [editingMeeting, setEditingMeeting] = useState<Meeting | null>(null);
+  const [showMeetingModal, setShowMeetingModal] = useState(false);
+  const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
 
-  // Zmieniamy z powrotem typ na tylko 'View'
-  const [date, setDate] = useState(new Date());
-  const [view, setView] = useState<View>('month'); // Zmieniono typ z powrotem
+  // === PRZYWRÓCONE: Stany dla dynamicznej nawigacji i wyboru roku/widoku ===
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentView, setCurrentView] = useState<View>('month');
+  const [agendaYear, setAgendaYear] = useState<number>(new Date().getFullYear());
+
 
   const fetchMeetings = useCallback(async () => {
     if (!currentUser) {
-        setLoading(false);
-        return;
+      setLoading(false);
+      return;
     }
     setLoading(true);
     setError('');
     try {
-      const userMeetings = await getMeetings(currentUser.uid, currentUser.role);
-      userMeetings.sort((a, b) => {
-        const dateA = new Date(`${a.date}T${a.startTime}`);
-        const dateB = new Date(`${b.date}T${b.startTime}`);
-        return dateA.getTime() - dateB.getTime();
-      });
-      setMeetings(userMeetings);
+      const fetchedMeetings = await getMeetings(currentUser.id, currentUser.role, currentUser.email || undefined);
+      setMeetings(fetchedMeetings);
     } catch (err: any) {
-      setError(`Błąd podczas ładowania spotkań: ${err.message}`);
+      console.error("Błąd podczas pobierania spotkań:", err);
+      setError('Nie udało się pobrać spotkań: ' + err.message);
     } finally {
       setLoading(false);
     }
   }, [currentUser]);
 
+  const fetchAllUsers = useCallback(async () => {
+    try {
+      const users = await getAllUsers();
+      setAllUsers(users);
+    } catch (err: any) {
+      console.error("Błąd podczas pobierania wszystkich użytkowników:", err);
+      setError('Nie udało się pobrać listy użytkowników: ' + err.message);
+    }
+  }, []);
+
   useEffect(() => {
-    fetchMeetings();
-  }, [fetchMeetings]);
+    if (currentUser) {
+      fetchMeetings();
+      fetchAllUsers();
+    }
+  }, [currentUser, fetchMeetings, fetchAllUsers]);
 
-  const handleAddMeetingClick = () => {
-    setEditingMeeting(null);
-    setShowModal(true);
+  const handleEditMeeting = (meeting: Meeting) => {
+    setSelectedMeeting(meeting);
+    setShowMeetingModal(true);
   };
 
-  const handleEditMeetingClick = (meeting: Meeting) => {
-    setEditingMeeting(meeting);
-    setShowModal(true);
-  };
-
-  const handleCancelMeeting = async (id: string) => {
+  const handleCancelMeeting = async (meetingId: string) => {
     if (window.confirm('Czy na pewno chcesz anulować to spotkanie?')) {
       try {
-        await cancelMeeting(id);
+        await updateMeeting(meetingId, { status: 'canceled' });
         fetchMeetings();
+        alert('Spotkanie anulowano!');
       } catch (err: any) {
-        setError(`Błąd podczas anulowania spotkania: ${err.message}`);
+        console.error("Błąd podczas anulowania spotkania:", err);
+        alert('Nie udało się anulować spotkania: ' + err.message);
       }
     }
   };
 
-  const handleDeleteMeeting = async (id: string) => {
-    if (window.confirm('Czy na pewno chcesz trwale usunąć to spotkanie? Tej operacji nie można cofnąć!')) {
+  const handleDeleteMeeting = async (meetingId: string) => {
+    if (window.confirm('Czy na pewno chcesz usunąć to spotkanie? Tej operacji nie można cofnąć.')) {
       try {
-        await deleteMeeting(id);
+        await deleteMeeting(meetingId);
         fetchMeetings();
+        alert('Spotkanie usunięto!');
       } catch (err: any) {
-        setError(`Błąd podczas usuwania spotkania: ${err.message}`);
+        console.error("Błąd podczas usuwania spotkania:", err);
+        alert('Nie udało się usunąć spotkania: ' + err.message);
       }
     }
   };
 
-  const events = useMemo(() => {
-    return meetings.map(meeting => ({
+  const handleCloseMeetingModal = () => {
+    setShowMeetingModal(false);
+    setSelectedMeeting(null);
+  };
+
+  const handleSelectSlot = useCallback(({ start, end }: { start: Date; end: Date }) => {
+    if (!currentUser) {
+      alert('Musisz być zalogowany, aby dodać spotkanie.');
+      return;
+    }
+    // Usuwamy warunek na fixedYear
+    const newMeeting: Meeting = {
+      id: '',
+      title: '',
+      description: '',
+      date: moment(start).format('YYYY-MM-DD'),
+      startTime: moment(start).format('HH:mm'),
+      endTime: moment(end).format('HH:mm'),
+      participants: [currentUser.email || ''],
+      createdBy: currentUser.id,
+      status: 'scheduled',
+      createdAt: new Date(),
+    };
+    setSelectedMeeting(newMeeting);
+    setShowMeetingModal(true);
+  }, [currentUser]);
+
+
+  const handleSelectEvent = useCallback((event: CalendarEvent) => {
+    if (event.resource) {
+      setSelectedMeeting(event.resource);
+      setShowMeetingModal(true);
+    }
+  }, []);
+
+  // === PRZYWRÓCONE: Funkcje nawigacyjne i zmiany widoku/roku ===
+  const handleCalendarNavigate = useCallback((newDate: Date) => {
+    setCurrentDate(newDate);
+    if (currentView === 'agenda') {
+      setAgendaYear(newDate.getFullYear());
+    }
+  }, [currentView]);
+
+  const handleCalendarViewChange = useCallback((newView: View) => {
+    setCurrentView(newView);
+    if (newView === 'agenda') {
+      setCurrentDate(new Date(agendaYear, 0, 1));
+    } else {
+      setCurrentDate(new Date());
+    }
+  }, [agendaYear]);
+
+  const handleAgendaYearChange = useCallback((year: number) => {
+    setAgendaYear(year);
+    setCurrentDate(new Date(year, 0, 1));
+    setCurrentView('agenda');
+  }, []);
+
+
+  const calendarEvents: CalendarEvent[] = useMemo(() => {
+    let filteredMeetings = meetings.filter(event => event.status === 'scheduled');
+
+    // === PRZYWRÓCONE: Filtrowanie dla agendy na podstawie agendaYear ===
+    if (currentView === 'agenda') {
+      filteredMeetings = filteredMeetings.filter(meeting => {
+        const meetingYear = moment(meeting.date).year();
+        return meetingYear === agendaYear;
+      });
+    }
+
+    return filteredMeetings.map((meeting) => ({
       id: meeting.id,
-      title: meeting.title || 'Brak tytułu',
+      title: `${meeting.title} (${meeting.creatorUsername || meeting.createdBy})`,
       start: new Date(`${meeting.date}T${meeting.startTime}`),
       end: new Date(`${meeting.date}T${meeting.endTime}`),
       allDay: false,
       resource: meeting,
-      isCanceled: meeting.status === 'canceled'
     }));
-  }, [meetings]);
+  }, [meetings, currentView, agendaYear]); // Przywrócone zależności
 
-  const eventPropGetter = useCallback((event: any) => {
-    return {
-      style: {
-        backgroundColor: event.isCanceled ? '#dc3545' : '#0d6efd',
-        textDecoration: event.isCanceled ? 'line-through' : 'none',
-        color: 'white',
-      },
-    };
-  }, []);
+  const renderMeetingCard = (meeting: Meeting, isCreator: boolean) => (
+    <Card key={meeting.id} className="meeting-card mb-3">
+      <Card.Body>
+        <Card.Title>{meeting.title}</Card.Title>
+        <Card.Subtitle className="mb-2 text-muted">
+          {meeting.date} od {meeting.startTime} do {meeting.endTime}
+        </Card.Subtitle>
+        <Card.Text>
+          Opis: {meeting.description} <br />
+          Status: {meeting.status === 'scheduled' ? 'Zaplanowane' : 'Anulowane'} <br />
+          Twórca: {meeting.creatorUsername || 'Nieznany Użytkownik'} <br />
+          Uczestnicy: {meeting.participants.join(', ')}
+        </Card.Text>
+        <div className="d-flex gap-2">
+          <Button variant="info" size="sm" onClick={() => handleEditMeeting(meeting)}>
+            Edytuj
+          </Button>
+          {isCreator && meeting.status === 'scheduled' && (
+            <Button variant="warning" size="sm" onClick={() => handleCancelMeeting(meeting.id)}>
+              Anuluj
+            </Button>
+          )}
+          {isCreator && (
+            <Button variant="danger" size="sm" onClick={() => handleDeleteMeeting(meeting.id)}>
+              Usuń
+            </Button>
+          )}
+        </div>
+      </Card.Body>
+    </Card>
+  );
 
-  const handleSelectEvent = useCallback((event: any) => {
-    setEditingMeeting(event.resource);
-    setShowModal(true);
-  }, []);
-
-  if (loading) {
+  // === WERSJA PRZEDOSTATNIA: CustomToolbarRenderer z useCallback, przed returnami ===
+  const CustomToolbarRenderer = useCallback((toolbarPropsFromRBC: ToolbarProps<CalendarEvent, object>) => {
     return (
-      <Container className="d-flex justify-content-center align-items-center mt-5">
+      <CalendarToolbar
+        {...toolbarPropsFromRBC} // Przekazujemy wszystkie standardowe propsy z react-big-calendar
+        currentYear={agendaYear}     // Wstrzykujemy nasz customowy prop
+        onYearChange={handleAgendaYearChange} // Wstrzykujemy nasz customowy prop
+      />
+    );
+  }, [agendaYear, handleAgendaYearChange]); // Zależności dla useCallback
+
+  if (authLoading || loading) {
+    return (
+      <Container className="d-flex justify-content-center align-items-center" style={{ minHeight: '80vh' }}>
         <Spinner animation="border" role="status">
-          <span className="visually-hidden">Ładowanie spotkań...</span>
+          <span className="visually-hidden">Ładowanie...</span>
         </Spinner>
       </Container>
     );
   }
 
   if (error) {
-    return <Container className="mt-4"><Alert variant="danger">{error}</Alert></Container>;
+    return (
+      <Container className="mt-4">
+        <Alert variant="danger">{error}</Alert>
+      </Container>
+    );
   }
 
-  if (!currentUser) {
-    return <Container className="mt-4"><Alert variant="info">Zaloguj się, aby zobaczyć swój Dashboard.</Alert></Container>;
-  }
+  const createdMeetings = meetings.filter(m => currentUser && m.createdBy === currentUser.id);
+  const participatedMeetings = meetings.filter(m =>
+    currentUser && m.participants.includes(currentUser.email || '') && m.createdBy !== currentUser.id
+  );
 
   return (
     <Container className="mt-4">
-      <Card>
+      <h2>Panel użytkownika - Dashboard</h2>
+
+      <Button variant="primary" onClick={() => setShowMeetingModal(true)} className="mb-4">
+        Dodaj nowe spotkanie
+      </Button>
+
+      <Card className="mb-4">
         <Card.Body>
-          <h2 className="text-center mb-4">Moje Spotkania</h2>
-          <div className="text-end mb-3">
-            <Button variant="primary" onClick={handleAddMeetingClick}>
-              Dodaj nowe spotkanie
-            </Button>
-          </div>
-
-          {meetings.length === 0 && (
-            <Alert variant="info" className="text-center">
-              Nie masz jeszcze żadnych zaplanowanych spotkań. Dodaj pierwsze!
-            </Alert>
-          )}
-
-          <h3 className="mb-3 mt-4">Kalendarz spotkań</h3>
+          <Card.Title>Twój Kalendarz Spotkań</Card.Title>
           <div style={{ height: 600 }}>
             <Calendar
               localizer={localizer}
-              events={events}
+              events={calendarEvents}
               startAccessor="start"
               endAccessor="end"
               style={{ height: '100%' }}
-              selectable
               onSelectEvent={handleSelectEvent}
-              eventPropGetter={eventPropGetter}
-              date={date}
-              view={view} // Zmieniono z powrotem na samo view
-              onNavigate={setDate} // Wracamy do domyślnego onNavigate
-              onView={newView => setView(newView)} // Wracamy do domyślnego onView
-              components={{
-                toolbar: CalendarToolbar,
-              }}
-              // Usuwamy 'year' z dostępnych widoków
+              onSelectSlot={handleSelectSlot}
+              selectable
+              // === PRZYWRÓCONE: Dynamiczne widoki i nawigacja ===
               views={['month', 'week', 'day', 'agenda']}
+              view={currentView}
+              onView={handleCalendarViewChange}
+              date={currentDate}
+              onNavigate={handleCalendarNavigate}
+              defaultView="month" // Przywracamy defaultView
+
+              messages={{
+                next: "Następny",
+                previous: "Poprzedni",
+                today: "Dziś",
+                month: "Miesiąc",
+                week: "Tydzień",
+                day: "Dzień",
+                agenda: "Agenda",
+                date: "Data",
+                time: "Godzina",
+                event: "Wydarzenie",
+                noEventsInRange: "Brak wydarzeń w tym zakresie."
+              }}
+              components={{
+                toolbar: CustomToolbarRenderer, // Używamy naszej funkcji renderującej
+              }}
             />
           </div>
+        </Card.Body>
+      </Card>
 
-          <h3 className="mb-3 mt-5">Moje zaplanowane spotkania (Lista)</h3>
-          {meetings.length === 0 ? (
-             <Alert variant="info" className="text-center">
-               Brak spotkań do wyświetlenia na liście.
-             </Alert>
+      <Card className="mb-4">
+        <Card.Body>
+          <Card.Title>Spotkania, które zorganizowałeś</Card.Title>
+          {createdMeetings.length === 0 ? (
+            <Alert variant="info">Nie zorganizowałeś jeszcze żadnych spotkań.</Alert>
           ) : (
-            <ListGroup>
-              {meetings.map((meeting) => (
-                <ListGroup.Item key={meeting.id} className="mb-3 p-3"
-                  style={{ backgroundColor: meeting.status === 'canceled' ? '#f8d7da' : '#e2e3e5' }}
-                >
-                  <Row className="align-items-center">
-                    <Col md={8}>
-                      <h5 className={meeting.status === 'canceled' ? 'text-decoration-line-through text-danger' : ''}>
-                        {meeting.title}
-                        {meeting.status === 'canceled' && <span className="ms-2 badge bg-danger">Anulowane</span>}
-                      </h5>
-                      <p><strong>Opis:</strong> {meeting.description}</p>
-                      <p><strong>Data:</strong> {meeting.date} od {meeting.startTime} do {meeting.endTime}</p>
-                      <p><strong>Uczestnicy:</strong> {meeting.participants.join(', ') || 'Brak'}</p>
-                      <small className="text-muted">Utworzono: {meeting.createdAt?.toLocaleString()}</small>
-                    </Col>
-                    <Col md={4} className="text-md-end mt-2 mt-md-0">
-                      <div className="d-flex flex-wrap justify-content-end gap-2">
-                        {meeting.status === 'scheduled' && (
-                          <>
-                            <Button variant="warning" size="sm" onClick={() => handleEditMeetingClick(meeting)}>
-                              Edytuj
-                            </Button>
-                            <Button variant="danger" size="sm" onClick={() => handleCancelMeeting(meeting.id)}>
-                              Anuluj
-                            </Button>
-                          </>
-                        )}
-                        <Button variant="outline-danger" size="sm" onClick={() => handleDeleteMeeting(meeting.id)}>
-                          Usuń
-                        </Button>
-                      </div>
-                    </Col>
-                  </Row>
-                </ListGroup.Item>
-              ))}
-            </ListGroup>
+            <div className="meeting-list">
+              {createdMeetings.map((meeting) => renderMeetingCard(meeting, true))}
+            </div>
+          )}
+        </Card.Body>
+      </Card>
+
+      <Card className="mb-4">
+        <Card.Body>
+          <Card.Title>Spotkania, w których uczestniczysz</Card.Title>
+          {participatedMeetings.length === 0 ? (
+            <Alert variant="info">Nie uczestniczysz w żadnych innych spotkaniach.</Alert>
+          ) : (
+            <div className="meeting-list">
+              {participatedMeetings.map((meeting) => renderMeetingCard(meeting, false))}
+            </div>
           )}
         </Card.Body>
       </Card>
 
       <MeetingFormModal
-        show={showModal}
-        onHide={() => setShowModal(false)}
+        show={showMeetingModal}
+        onHide={handleCloseMeetingModal}
         onSuccess={fetchMeetings}
-        editingMeeting={editingMeeting}
+        meeting={selectedMeeting}
+        creatorId={currentUser?.id || ''}
+        creatorEmail={currentUser?.email || ''}
+        allUsers={allUsers}
       />
     </Container>
   );

@@ -1,46 +1,108 @@
-# Getting Started with Create React App
+# Aplikacja do Zarządzania Rezerwacjami Spotkań (React)
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+## Cel Projektu
 
-## Available Scripts
+Celem projektu jest stworzenie kompleksowej aplikacji webowej do zarządzania rezerwacjami spotkań, zbudowanej w technologii **React 18+**. Aplikacja ma umożliwiać użytkownikom łatwe rezerwowanie terminów spotkań, ich edycję i anulowanie, natomiast administratorom zapewniać pełną kontrolę nad wszystkimi rezerwacjami i użytkownikami w systemie.
 
-In the project directory, you can run:
+## Technologie Wykorzystane w Projekcie
 
-### `npm start`
+* **Frontend:** React 18+, React-Bootstrap (zbyt późno zauważyłem że nie ma go na liście...)
+* **Zarządzanie stanem:** React Context API (dla uwierzytelniania)
+* **Kalendarz:** `react-big-calendar`
+* **Backend & Baza Danych:** Firebase (w tym Firebase Authentication do uwierzytelniania i Firestore do przechowywania danych o spotkaniach i użytkownikach)
+* **Obsługa formularzy:** Formularze React (wspierane przez `react-bootstrap/Form`)
+* **Routing:** React Router (lub podobne rozwiązanie do nawigacji między stronami)
+* **Zarządzanie zależnościami:** npm
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+## Opis Działania Aplikacji i Główne Funkcjonalności
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
+Aplikacja jest systemem zarządzania spotkaniami z wyraźnym podziałem na role: **użytkownika** i **administratora**.
 
-### `npm test`
+### 1. Uwierzytelnianie i Autoryzacja Użytkowników
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+* **Rejestracja:** Użytkownicy mogą tworzyć nowe konta za pomocą formularza rejestracyjnego (email, hasło, nazwa użytkownika).
+* **Logowanie:** Możliwość logowania do istniejących kont.
+* **Resetowanie Hasła:** Funkcjonalność resetowania hasła poprzez email.
+* **Obsługa Sesji:** Zarządzanie sesjami użytkowników za pomocą kontekstu uwierzytelniania (`AuthContext`), zapewniające stan logowania w całej aplikacji.
+* **Autoryzacja Rolami:**
+    * **Administrator:** Posiada pełny dostęp do wszystkich rezerwacji i profili użytkowników w systemie.
+    * **Użytkownik:** Może tworzyć, edytować, usuwać i anulować **wyłącznie swoje** rezerwacje oraz dołączać/opuszczać rezerwacje innych.
 
-### `npm run build`
+### 2. Zarządzanie Profilami Użytkowników
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+* **Lista Użytkowników:** Administratorzy mają dostęp do kompleksowej listy wszystkich zarejestrowanych użytkowników.
+* **Zmiana Roli:** Administratorzy mogą zmieniać role użytkowników (pomiędzy 'user' a 'admin').
+* **Usuwanie Użytkowników:** Administratorzy mogą usuwać profile użytkowników (konto Firebase Auth pozostaje, ale powiązany profil w Firestore jest usuwany).
+* **Ograniczenia:** Administrator nie może zmienić własnej roli ani usunąć własnego konta z poziomu panelu administratora.
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+### 3. Zarządzanie Spotkaniami
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+#### 3.1. Dashboard Użytkownika
 
-### `npm run eject`
+* **Moje Spotkania:** Wyświetlanie spotkań zorganizowanych przez zalogowanego użytkownika oraz spotkań, w których uczestniczy.
+* **Widok Kalendarza:** Interaktywny kalendarz (`react-big-calendar`) z wizualizacją spotkań (widoki miesiąca, tygodnia, dnia, agendy).
+* **Tworzenie Spotkań:** Użytkownicy mogą dodawać nowe spotkania, określając datę, godzinę, tytuł, opis oraz opcjonalnych uczestników.
+* **Edycja i Anulowanie:** Możliwość edycji i anulowania własnych spotkań.
+* **Dołączanie/Opuszczanie:** Uczestnicy mogą dołączać do spotkań lub je opuszczać.
 
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
+#### 3.2. Lista Spotkań
 
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+* **Kompleksowa Lista:** Widok tabelaryczny wszystkich spotkań.
+* **Filtrowanie:** Możliwość filtrowania rezerwacji według tytułu/opisu, uczestników, oraz statusu (zaplanowane, anulowane).
+* **Sortowanie:** Możliwość sortowania spotkań według daty, godziny rozpoczęcia, czasu utworzenia, oraz tytułu.
+* **Szczegóły Spotkań:** Przeglądanie szczegółowych informacji o każdym spotkaniu.
+* **Akcje:** Twórcy spotkań mogą je edytować, anulować lub usuwać. Uczestnicy mogą dołączyć lub opuścić spotkanie.
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
+#### 3.3. Panel Administratora (`AdminPage`)
 
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
+* **Pełny Dostęp:** Administratorzy mają dostęp do pełnej listy wszystkich spotkań w systemie.
+* **Operacje CRUD:** Możliwość dodawania, edycji, anulowania i usuwania **dowolnego** spotkania w systemie.
 
-## Learn More
+### 4. Komponenty Wielokrotnego Użytku
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+* **`MeetingFormModal`:** Modalny formularz do dodawania i edycji spotkań. Jest to komponent wielokrotnego użytku, wykorzystywany zarówno na Dashboardzie użytkownika, jak i w Panelu Administratora. Umożliwia wybór uczestników spośród wszystkich zarejestrowanych użytkowników.
+* **`CalendarToolbar`:** Niestandardowy pasek narzędzi dla komponentu kalendarza `react-big-calendar`, zapewniający funkcje nawigacji i zmiany widoków.
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+### 5. Obsługa Danych i Komunikacja z Backendem
+
+* **Firebase Firestore:** Aplikacja integruje się z Firebase Firestore jako bazą danych NoSQL, służącą do trwałego przechowywania danych o użytkownikach i spotkaniach.
+* **Warstwa Serwisowa:** Logika komunikacji z bazą danych (operacje CRUD) została wydzielona do osobnych serwisów (`meetingService.ts`, `userService.ts`), co zwiększa modularność, czytelność i łatwość utrzymania kodu.
+* **REST API:** Komunikacja z backendem (Firestore) odbywa się poprzez operacje na bazie danych, symulujące interakcje REST API.
+
+### 6. Interfejs Użytkownika (UI/UX)
+
+* **Responsywność:** Interfejs użytkownika jest responsywny, dzięki wykorzystaniu biblioteki React-Bootstrap, co zapewnia optymalne wyświetlanie na różnych urządzeniach.
+* **Informacje Zwrotne:** Aplikacja zapewnia użytkownikowi jasne informacje zwrotne dotyczące stanu operacji (np. wskaźniki ładowania Spinner, komunikaty o błędach Alert, powiadomienia o sukcesie).
+
+### 7. Obsługa Błędów i Walidacja Formularzy
+
+* **Walidacja Pól:** Wdrożono walidację pól wejściowych w formularzach (np. poprawność formatu daty, adresu email) po stronie frontendowej.
+* **Obsługa Błędów:** Aplikacja jest przygotowana do obsługi błędów zarówno po stronie backendu (Firebase), jak i frontendowego interfejsu użytkownika, informując o nich odpowiednimi komunikatami.
+
+---
+
+## Uruchomienie Aplikacji
+
+### 1. Wymagania
+
+* **Node.js:** Wersja 14.x+
+* **npm:** Menedżer pakietów Node.js
+* Program do rozpakowywania plików `.zip`
+
+### 2. Kroki Uruchomienia
+
+1.  **Rozpakuj** plik `.zip` z kodem programu do wybranej lokalizacji.
+2.  Otwórz **terminal** (lub wiersz poleceń) i przejdź do rozpakowanego folderu projektu.
+    * Przykład: `cd C:\moj_folder\aplikacja`
+3.  **Zainstaluj zależności** projektu. W terminalu wpisz:
+
+    npm install
+
+4.  **Konfiguracja Firebase:** Konfiguracja Firebase jest już zawarta w pliku `src/firebase/config.ts`.
+5.  **Uruchom program.** W terminalu wpisz:
+
+    npm start
+
+6.  Aplikacja automatycznie otworzy się w przeglądarce pod adresem: `http://localhost:3000`.
+
+---

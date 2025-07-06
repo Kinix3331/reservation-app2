@@ -1,15 +1,11 @@
-// Import the functions you need from the SDKs you need
+// src/firebase/config.ts
 import { initializeApp } from "firebase/app";
 import { getAnalytics } from "firebase/analytics";
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
 
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-  apiKey: "AIzaSyCHO9SBVYMkkjhzY6XJ5EcJUqWvGiz3c3Q",
+  apiKey: "AIzaSyCHO9SBVYMkkjhzY6XJ5EcJUqWvGiz3c3Q", // Twój API Key
   authDomain: "rezerwacja-app-firebase.firebaseapp.com",
   projectId: "rezerwacja-app-firebase",
   storageBucket: "rezerwacja-app-firebase.firebasestorage.app",
@@ -20,7 +16,7 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
+const analytics = getAnalytics(app); // eslint-disable-line no-unused-vars
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
